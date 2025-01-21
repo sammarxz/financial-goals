@@ -1,17 +1,17 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Alert,
-  ScrollView,
+  VirtualizedList,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
-import { format, differenceInMonths } from "date-fns";
+import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { z } from "zod";
 
@@ -19,35 +19,75 @@ import { useNotificationStore } from "../stores/notificationStore";
 import { useUserStore } from "../stores/userStore";
 import { useAppConfigStore } from "../stores/configStore";
 
-import { Button } from "../components/Button";
-import { Input } from "../components/Input";
-import { DateRangePicker } from "../components/DateRangePicker";
 import { Layout } from "../components/Layout";
+import {
+  MemoizedButton,
+  MemoizedInput,
+  MemoizedDateRangePicker,
+} from "../components/MemoizedComponents";
 
 import { RootStackNavigation } from "../@types/navigation";
 import { AppConfig, UserData } from "../@types/schemas";
 
-import { calculateMonthlyValues } from "../utils/calculateMonthlyValues";
+// Memoized Components
+const Header = React.memo(
+  ({
+    isEditing,
+    onBack,
+    onToggleEdit,
+  }: {
+    isEditing: boolean;
+    onBack: () => void;
+    onToggleEdit: () => void;
+  }) => (
+    <View style={styles.header}>
+      <TouchableOpacity onPress={onBack} style={styles.backButton}>
+        <Feather name="arrow-left" size={24} color="#333" />
+      </TouchableOpacity>
+      <Text style={styles.headerTitle}>Configurações</Text>
+      <TouchableOpacity onPress={onToggleEdit} style={styles.editButton}>
+        <Feather name={isEditing ? "x" : "edit-2"} size={20} color="#333" />
+      </TouchableOpacity>
+    </View>
+  )
+);
 
-const themeOptions: Record<AppConfig["theme"], string> = {
-  light: "Claro",
-  dark: "Escuro",
-  system: "Sistema",
-};
+const NotificationToggle = React.memo(
+  ({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) => (
+    <TouchableOpacity style={styles.optionButton} onPress={onToggle}>
+      <View style={styles.optionContent}>
+        <Text style={styles.optionText}>Notificações de Aporte</Text>
+        <View style={[styles.toggle, enabled && styles.toggleActive]}>
+          <View
+            style={[styles.toggleCircle, enabled && styles.toggleCircleActive]}
+          />
+        </View>
+      </View>
+    </TouchableOpacity>
+  )
+);
 
-type CurrencyOption = {
+// Types for settings items
+interface SettingSection {
+  id: string;
+  title: string;
+  data: SettingItem[];
+}
+
+interface SettingItem {
+  id: string;
+  type: "input" | "date" | "toggle" | "button" | "theme" | "currency";
   label: string;
-  symbol: string;
-};
-
-const currencyOptions: Record<AppConfig["currency"], CurrencyOption> = {
-  BRL: { label: "Real (R$)", symbol: "R$" },
-  USD: { label: "Dólar (US$)", symbol: "US$" },
-  EUR: { label: "Euro (€)", symbol: "€" },
-};
+  value?: string | boolean;
+  onPress?: () => void;
+  component?: React.ReactNode;
+}
 
 export function Settings() {
   const navigation = useNavigation<RootStackNavigation>();
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Store hooks
   const userData = useUserStore((state) => state.userData);
   const setUserData = useUserStore((state) => state.setUserData);
   const clearUserData = useUserStore((state) => state.clearUserData);
@@ -57,7 +97,7 @@ export function Settings() {
   );
   const { theme, currency, setTheme, setCurrency } = useAppConfigStore();
 
-  const [isEditing, setIsEditing] = useState(false);
+  // Form state
   const [editedName, setEditedName] = useState(userData?.name || "");
   const [editedGoal, setEditedGoal] = useState(
     userData?.goal.toLocaleString("pt-BR", {
@@ -75,9 +115,29 @@ export function Settings() {
     UserData["investmentType"]
   >(userData?.investmentType || "fixed");
 
-  if (!userData) return null;
+  // Callbacks
+  const handleBack = useCallback(() => {
+    if (isEditing) {
+      Alert.alert("Atenção", "Deseja descartar as alterações?", [
+        { text: "Não", style: "cancel" },
+        {
+          text: "Sim",
+          onPress: () => {
+            setIsEditing(false);
+            navigation.goBack();
+          },
+        },
+      ]);
+    } else {
+      navigation.goBack();
+    }
+  }, [isEditing, navigation]);
 
-  const handleToggleNotifications = async () => {
+  const handleToggleEdit = useCallback(() => {
+    setIsEditing(!isEditing);
+  }, [isEditing]);
+
+  const handleToggleNotifications = useCallback(async () => {
     try {
       await toggleNotifications();
     } catch (error) {
@@ -86,62 +146,59 @@ export function Settings() {
         "Não foi possível alterar as configurações de notificação"
       );
     }
-  };
+  }, [toggleNotifications]);
 
-  const formatCurrency = (value: string) => {
+  const formatCurrency = useCallback((value: string) => {
     const numbers = value.replace(/\D/g, "");
     const numberFormat = new Intl.NumberFormat("pt-BR", {
       style: "currency",
       currency: "BRL",
       minimumFractionDigits: 2,
     });
-
     return numberFormat.format(Number(numbers) / 100);
-  };
+  }, []);
 
-  const handleGoalChange = (text: string) => {
-    const formattedValue = formatCurrency(text);
-    setEditedGoal(formattedValue);
-  };
+  const handleGoalChange = useCallback(
+    (text: string) => {
+      const formattedValue = formatCurrency(text);
+      setEditedGoal(formattedValue);
+    },
+    [formatCurrency]
+  );
 
-  const handleSaveChanges = async () => {
+  const handleSaveChanges = useCallback(async () => {
     try {
-      // Construir os dados para validação
       const goalValue = Number(editedGoal.replace(/\D/g, "")) / 100;
       const newUserData: UserData = {
-        ...userData,
+        ...userData!,
         name: editedName,
         goal: goalValue,
         startDate: editedStartDate,
         endDate: editedEndDate,
         investmentType: editedInvestmentType,
-        monthlyValues: calculateMonthlyValues(
-          goalValue,
-          editedStartDate,
-          editedEndDate,
-          editedInvestmentType
-        ),
-        completedMonths: [],
       };
 
-      // Validar com Zod antes de salvar
       await setUserData(newUserData);
       setIsEditing(false);
       Alert.alert("Sucesso", "Dados atualizados com sucesso!");
     } catch (error) {
       if (error instanceof z.ZodError) {
-        if (error instanceof z.ZodError) {
-          Alert.alert("Erro de Validação", error.errors[0].message);
-        } else {
-          Alert.alert("Erro", "Não foi possível salvar as alterações");
-        }
+        Alert.alert("Erro de Validação", error.errors[0].message);
       } else {
         Alert.alert("Erro", "Não foi possível salvar as alterações");
       }
     }
-  };
+  }, [
+    editedName,
+    editedGoal,
+    editedStartDate,
+    editedEndDate,
+    editedInvestmentType,
+    userData,
+    setUserData,
+  ]);
 
-  const handleClearData = () => {
+  const handleClearData = useCallback(() => {
     Alert.alert(
       "Limpar Dados",
       "Tem certeza que deseja apagar todos os dados? Esta ação não pode ser desfeita.",
@@ -164,7 +221,176 @@ export function Settings() {
         },
       ]
     );
-  };
+  }, [clearUserData, navigation]);
+
+  // Settings sections with memoization
+  const sections = useMemo<SettingSection[]>(() => {
+    if (!userData) return [];
+
+    return [
+      {
+        id: "personal",
+        title: "Informações Pessoais",
+        data: [
+          {
+            id: "name",
+            type: "input",
+            label: "Nome",
+            value: editedName,
+            component: isEditing ? (
+              <MemoizedInput
+                label="Nome"
+                value={editedName}
+                onChangeText={setEditedName}
+                autoCapitalize="words"
+              />
+            ) : (
+              <Text style={styles.infoValue}>{userData.name}</Text>
+            ),
+          },
+          {
+            id: "goal",
+            type: "input",
+            label: "Meta",
+            value: editedGoal,
+            component: isEditing ? (
+              <MemoizedInput
+                label="Meta"
+                value={editedGoal}
+                onChangeText={handleGoalChange}
+                keyboardType="numeric"
+              />
+            ) : (
+              <Text style={styles.infoValue}>
+                R$ {userData.goal.toLocaleString("pt-BR")}
+              </Text>
+            ),
+          },
+          {
+            id: "dates",
+            type: "date",
+            label: "Período",
+            component: isEditing ? (
+              <MemoizedDateRangePicker
+                startDate={editedStartDate}
+                endDate={editedEndDate}
+                onChangeStart={setEditedStartDate}
+                onChangeEnd={setEditedEndDate}
+              />
+            ) : (
+              <Text style={styles.infoValue}>
+                {format(userData.startDate, "dd/MM/yyyy", { locale: ptBR })} até{" "}
+                {format(userData.endDate, "dd/MM/yyyy", { locale: ptBR })}
+              </Text>
+            ),
+          },
+        ],
+      },
+      {
+        id: "preferences",
+        title: "Preferências",
+        data: [
+          {
+            id: "notifications",
+            type: "toggle",
+            label: "Notificações",
+            value: notificationsEnabled,
+            component: (
+              <NotificationToggle
+                enabled={notificationsEnabled}
+                onToggle={handleToggleNotifications}
+              />
+            ),
+          },
+          {
+            id: "theme",
+            type: "theme",
+            label: "Tema",
+            component: (
+              <View style={styles.buttonGroup}>
+                {Object.entries({
+                  light: "Claro",
+                  dark: "Escuro",
+                  system: "Sistema",
+                }).map(([key, label]) => (
+                  <MemoizedButton
+                    key={key}
+                    title={label}
+                    variant={theme === key ? "primary" : "outline"}
+                    onPress={() => setTheme(key as AppConfig["theme"])}
+                    style={styles.themeButton}
+                  />
+                ))}
+              </View>
+            ),
+          },
+        ],
+      },
+      {
+        id: "actions",
+        title: "Ações",
+        data: [
+          {
+            id: "clear",
+            type: "button",
+            label: "Limpar Dados",
+            component: (
+              <MemoizedButton
+                title="Limpar Todos os Dados"
+                variant="outline"
+                onPress={handleClearData}
+              />
+            ),
+          },
+        ],
+      },
+    ];
+  }, [
+    userData,
+    isEditing,
+    editedName,
+    editedGoal,
+    editedStartDate,
+    editedEndDate,
+    notificationsEnabled,
+    theme,
+    handleToggleNotifications,
+    handleGoalChange,
+    handleClearData,
+  ]);
+
+  // VirtualizedList helper functions
+  const getItem = useCallback(
+    (data: SettingSection[], index: number) => data[index],
+    []
+  );
+  const getItemCount = useCallback((data: SettingSection[]) => data.length, []);
+  const keyExtractor = useCallback((item: SettingSection) => item.id, []);
+
+  // Render functions
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: SettingSection }) => (
+      <Text style={styles.sectionTitle}>{section.title}</Text>
+    ),
+    []
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: SettingSection }) => (
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{item.title}</Text>
+        {item.data.map((setting) => (
+          <View key={setting.id} style={styles.settingItem}>
+            <Text style={styles.settingLabel}>{setting.label}</Text>
+            {setting.component}
+          </View>
+        ))}
+      </View>
+    ),
+    []
+  );
+
+  if (!userData) return null;
 
   return (
     <Layout>
@@ -172,212 +398,44 @@ export function Settings() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardView}
       >
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => {
-              if (isEditing) {
-                Alert.alert("Atenção", "Deseja descartar as alterações?", [
-                  {
-                    text: "Não",
-                    style: "cancel",
-                  },
-                  {
-                    text: "Sim",
-                    onPress: () => {
-                      setIsEditing(false);
-                      navigation.goBack();
-                    },
-                  },
-                ]);
-              } else {
-                navigation.goBack();
-              }
-            }}
-            style={styles.backButton}
-          >
-            <Feather name="arrow-left" size={24} color="#333" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Configurações</Text>
-          <TouchableOpacity
-            onPress={() => setIsEditing(!isEditing)}
-            style={styles.editButton}
-          >
-            <Feather name={isEditing ? "x" : "edit-2"} size={20} color="#333" />
-          </TouchableOpacity>
-        </View>
+        <Header
+          isEditing={isEditing}
+          onBack={handleBack}
+          onToggleEdit={handleToggleEdit}
+        />
 
-        <ScrollView style={styles.content}>
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Informações Pessoais</Text>
-            {isEditing ? (
-              <>
-                <Input
-                  label="Nome"
-                  value={editedName}
-                  onChangeText={setEditedName}
-                  autoCapitalize="words"
-                />
-                <Input
-                  label="Meta"
-                  value={editedGoal}
-                  onChangeText={handleGoalChange}
-                  keyboardType="numeric"
-                />
-                <View style={styles.dateContainer}>
-                  <Text style={styles.dateLabel}>Período</Text>
-                  <DateRangePicker
-                    startDate={editedStartDate}
-                    endDate={editedEndDate}
-                    onChangeStart={setEditedStartDate}
-                    onChangeEnd={setEditedEndDate}
-                  />
-                </View>
-                <View style={styles.investmentTypeContainer}>
-                  <Text style={styles.dateLabel}>Tipo de Investimento</Text>
-                  <View style={styles.buttonGroup}>
-                    <Button
-                      title="Aportes Fixos"
-                      variant={
-                        editedInvestmentType === "fixed" ? "primary" : "outline"
-                      }
-                      onPress={() => setEditedInvestmentType("fixed")}
-                      style={styles.typeButton}
-                    />
-                    <Button
-                      title="Aportes Crescentes"
-                      variant={
-                        editedInvestmentType === "growing"
-                          ? "primary"
-                          : "outline"
-                      }
-                      onPress={() => setEditedInvestmentType("growing")}
-                      style={styles.typeButton}
-                    />
-                  </View>
-                </View>
-              </>
-            ) : (
-              <>
-                <View style={styles.infoItem}>
-                  <Text style={styles.infoLabel}>Nome</Text>
-                  <Text style={styles.infoValue}>{userData.name}</Text>
-                </View>
-                <View style={styles.infoItem}>
-                  <Text style={styles.infoLabel}>Meta</Text>
-                  <Text style={styles.infoValue}>
-                    R$ {userData.goal.toLocaleString("pt-BR")}
-                  </Text>
-                </View>
-                <View style={styles.infoItem}>
-                  <Text style={styles.infoLabel}>Período</Text>
-                  <Text style={styles.infoValue}>
-                    {format(userData.startDate, "dd/MM/yyyy", { locale: ptBR })}{" "}
-                    até{" "}
-                    {format(userData.endDate, "dd/MM/yyyy", { locale: ptBR })}
-                  </Text>
-                </View>
-                <View style={styles.infoItem}>
-                  <Text style={styles.infoLabel}>Tipo de Investimento</Text>
-                  <Text style={styles.infoValue}>
-                    {userData.investmentType === "fixed"
-                      ? "Aportes Fixos"
-                      : "Aportes Crescentes"}
-                  </Text>
-                </View>
-              </>
-            )}
+        <VirtualizedList
+          data={sections}
+          renderItem={renderItem}
+          keyExtractor={keyExtractor}
+          getItem={getItem}
+          getItemCount={getItemCount}
+          contentContainerStyle={styles.container}
+          showsVerticalScrollIndicator={false}
+          windowSize={3}
+          initialNumToRender={3}
+          maxToRenderPerBatch={3}
+        />
+
+        {isEditing && (
+          <View style={styles.footer}>
+            <MemoizedButton
+              title="Salvar Alterações"
+              onPress={handleSaveChanges}
+            />
           </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Notificações</Text>
-            <TouchableOpacity
-              style={styles.optionButton}
-              onPress={handleToggleNotifications}
-            >
-              <View style={styles.optionContent}>
-                <Text style={styles.optionText}>Notificações de Aporte</Text>
-                <View
-                  style={[
-                    styles.toggle,
-                    notificationsEnabled && styles.toggleActive,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.toggleCircle,
-                      notificationsEnabled && styles.toggleCircleActive,
-                    ]}
-                  />
-                </View>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.preferenceItem}>
-            <Text style={styles.preferenceLabel}>Tema</Text>
-            <View style={styles.buttonGroup}>
-              {(
-                Object.entries(themeOptions) as [AppConfig["theme"], string][]
-              ).map(([key, label]) => (
-                <Button
-                  key={key}
-                  title={label}
-                  variant={theme === key ? "primary" : "outline"}
-                  onPress={() => setTheme(key)}
-                  style={styles.themeButton}
-                />
-              ))}
-            </View>
-          </View>
-
-          {/* Botões de moeda */}
-          <View style={styles.preferenceItem}>
-            <Text style={styles.preferenceLabel}>Moeda</Text>
-            <View style={styles.buttonGroup}>
-              {(
-                Object.entries(currencyOptions) as [
-                  AppConfig["currency"],
-                  CurrencyOption
-                ][]
-              ).map(([key, { label }]) => (
-                <Button
-                  key={key}
-                  title={label}
-                  variant={currency === key ? "primary" : "outline"}
-                  onPress={() => setCurrency(key)}
-                  style={styles.currencyButton}
-                />
-              ))}
-            </View>
-          </View>
-
-          {isEditing ? (
-            <View style={styles.section}>
-              <Button title="Salvar Alterações" onPress={handleSaveChanges} />
-            </View>
-          ) : (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Dados</Text>
-              <Button
-                title="Limpar Todos os Dados"
-                variant="outline"
-                onPress={handleClearData}
-              />
-            </View>
-          )}
-        </ScrollView>
+        )}
       </KeyboardAvoidingView>
     </Layout>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#F8F9FA",
-  },
   keyboardView: {
     flex: 1,
+  },
+  container: {
+    padding: 16,
   },
   header: {
     flexDirection: "row",
@@ -400,15 +458,11 @@ const styles = StyleSheet.create({
   editButton: {
     padding: 8,
   },
-  content: {
-    flex: 1,
-  },
   section: {
     backgroundColor: "#FFF",
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 16,
     borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: "#E9ECEF",
   },
@@ -418,18 +472,29 @@ const styles = StyleSheet.create({
     color: "#333",
     marginBottom: 16,
   },
-  infoItem: {
-    marginBottom: 12,
+  settingItem: {
+    marginBottom: 16,
   },
-  infoLabel: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 4,
+  settingLabel: {
+    fontSize: 16,
+    color: "#333",
+    marginBottom: 8,
   },
   infoValue: {
     fontSize: 16,
     color: "#333",
     fontWeight: "500",
+  },
+  buttonGroup: {
+    flexDirection: "column",
+    marginTop: 8,
+    gap: 8,
+  },
+  themeButton: {
+    flex: 1,
+  },
+  currencyButton: {
+    flex: 1,
   },
   optionButton: {
     paddingVertical: 8,
@@ -458,43 +523,16 @@ const styles = StyleSheet.create({
     height: 26,
     borderRadius: 13,
     backgroundColor: "#FFF",
+    transform: [{ translateX: 0 }],
   },
   toggleCircleActive: {
     transform: [{ translateX: 20 }],
   },
-  dateContainer: {
-    marginVertical: 16,
-  },
-  dateLabel: {
-    fontSize: 16,
-    color: "#333",
-    marginBottom: 8,
-  },
-  investmentTypeContainer: {
-    marginBottom: 16,
-  },
-  buttonGroup: {
-    flexDirection: "row",
-    marginTop: 8,
-  },
-  typeButton: {
-    flex: 1,
-    marginHorizontal: 4,
-  },
-  preferenceItem: {
-    marginBottom: 16,
-  },
-  preferenceLabel: {
-    fontSize: 16,
-    color: "#333",
-    marginBottom: 8,
-  },
-  themeButton: {
-    flex: 1,
-    marginHorizontal: 4,
-  },
-  currencyButton: {
-    flex: 1,
-    marginHorizontal: 4,
+  footer: {
+    padding: 16,
+    paddingBottom: Platform.OS === "ios" ? 32 : 16,
+    backgroundColor: "#FFF",
+    borderTopWidth: 1,
+    borderTopColor: "#E9ECEF",
   },
 });

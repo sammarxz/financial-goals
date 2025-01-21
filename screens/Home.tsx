@@ -1,8 +1,7 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
-  ScrollView,
   StyleSheet,
   RefreshControl,
   TouchableOpacity,
@@ -16,10 +15,73 @@ import { RootStackNavigation } from "../@types/navigation";
 import { MonthlyValue } from "../@types/schemas";
 
 import { useInvestmentData } from "../hooks/useInvestmentData";
+import { useOptimizedAnimations } from "../hooks/useOptimizedAnimations";
 
-import { ProgressBar } from "../components/ProgressBar";
-import { InvestmentCard } from "../components/InvestmentCard";
+import { OptimizedInvestmentList } from "../components/OptimizedInvestmentList";
+import { MemoizedProgressBar } from "../components/MemoizedComponents";
 import { Layout } from "../components/Layout";
+
+// Memoized header component
+const Header = React.memo(
+  ({
+    name,
+    onSettingsPress,
+  }: {
+    name: string;
+    onSettingsPress: () => void;
+  }) => (
+    <View style={styles.header}>
+      <View>
+        <Text style={styles.greeting}>Olá, {name}!</Text>
+        <Text style={styles.date}>
+          {format(new Date(), "EEEE',' dd 'de' MMMM", { locale: ptBR })}
+        </Text>
+      </View>
+      <TouchableOpacity onPress={onSettingsPress} style={styles.settingsButton}>
+        <Feather name="settings" size={24} color="#333" />
+      </TouchableOpacity>
+    </View>
+  )
+);
+
+// Memoized goal card component
+const GoalCard = React.memo(
+  ({
+    goal,
+    progress,
+    totalInvested,
+    remainingValue,
+  }: {
+    goal: number;
+    progress: number;
+    totalInvested: number;
+    remainingValue: number;
+  }) => (
+    <View style={styles.goalCard}>
+      <View style={styles.goalHeader}>
+        <Text style={styles.goalTitle}>Meta de Investimento</Text>
+        <Text style={styles.goalValue}>R$ {goal.toLocaleString("pt-BR")}</Text>
+      </View>
+
+      <MemoizedProgressBar progress={progress} showPercentage height={12} />
+
+      <View style={styles.goalInfo}>
+        <View style={styles.infoItem}>
+          <Text style={styles.infoLabel}>Investido</Text>
+          <Text style={styles.infoValue}>
+            R$ {totalInvested.toLocaleString("pt-BR")}
+          </Text>
+        </View>
+        <View style={styles.infoItem}>
+          <Text style={styles.infoLabel}>Restante</Text>
+          <Text style={styles.infoValue}>
+            R$ {remainingValue.toLocaleString("pt-BR")}
+          </Text>
+        </View>
+      </View>
+    </View>
+  )
+);
 
 export function Home() {
   const navigation = useNavigation<RootStackNavigation>();
@@ -31,6 +93,23 @@ export function Home() {
     remainingValue,
     updateCompletedMonths,
   } = useInvestmentData();
+  const { startEntryAnimation } = useOptimizedAnimations();
+
+  // Memoize callbacks
+  const handleSettingsPress = useCallback(() => {
+    navigation.navigate("Settings");
+  }, [navigation]);
+
+  const handleCompleteMonth = useCallback(
+    async (month: string) => {
+      try {
+        await updateCompletedMonths(month);
+      } catch (error) {
+        console.error("Error completing month:", error);
+      }
+    },
+    [updateCompletedMonths]
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -39,110 +118,55 @@ export function Home() {
     }, 1000);
   }, []);
 
+  // Start entry animation when component mounts
+  React.useEffect(() => {
+    startEntryAnimation();
+  }, [startEntryAnimation]);
+
   if (!userData) return null;
 
-  // Calcular monthlyData localmente
-  const monthlyData: MonthlyValue[] = Object.entries(userData.monthlyValues)
-    .sort(
-      ([dateA], [dateB]) =>
-        new Date(dateA).getTime() - new Date(dateB).getTime()
-    )
-    .map(([month, value]) => ({
-      month,
-      formattedMonth: format(new Date(month), "MMMM/yyyy", { locale: ptBR }),
-      value,
-      completed: userData.completedMonths.includes(month),
-    }));
-
-  const remainingMonths = monthlyData.filter((item) => !item.completed).length;
-
-  const handleCompleteMonth = async (month: string) => {
-    try {
-      await updateCompletedMonths(month);
-    } catch (error) {
-      console.error("Error completing month:", error);
-    }
-  };
+  // Memoize monthly data calculation
+  const monthlyData: MonthlyValue[] = useMemo(
+    () =>
+      Object.entries(userData.monthlyValues)
+        .sort(
+          ([dateA], [dateB]) =>
+            new Date(dateA).getTime() - new Date(dateB).getTime()
+        )
+        .map(([month, value]) => ({
+          month,
+          formattedMonth: format(new Date(month), "MMMM/yyyy", {
+            locale: ptBR,
+          }),
+          value,
+          completed: userData.completedMonths.includes(month),
+        })),
+    [userData.monthlyValues, userData.completedMonths]
+  );
 
   return (
     <Layout>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Olá, {userData.name}!</Text>
-          <Text style={styles.date}>
-            {format(new Date(), "EEEE',' dd 'de' MMMM", { locale: ptBR })}
-          </Text>
-        </View>
-        <TouchableOpacity
-          onPress={() => navigation.navigate("Settings")}
-          style={styles.settingsButton}
-        >
-          <Feather name="settings" size={24} color="#333" />
-        </TouchableOpacity>
-      </View>
+      <Header name={userData.name} onSettingsPress={handleSettingsPress} />
 
-      <ScrollView
-        style={styles.container}
-        showsVerticalScrollIndicator={false}
+      <GoalCard
+        goal={userData.goal}
+        progress={progress}
+        totalInvested={totalInvested}
+        remainingValue={remainingValue}
+      />
+
+      <OptimizedInvestmentList
+        data={monthlyData}
+        onComplete={handleCompleteMonth}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-      >
-        <View style={styles.goalCard}>
-          <View style={styles.goalHeader}>
-            <Text style={styles.goalTitle}>Meta de Investimento</Text>
-            <Text style={styles.goalValue}>
-              R$ {userData.goal.toLocaleString("pt-BR")}
-            </Text>
-          </View>
-
-          <ProgressBar progress={progress} showPercentage height={12} />
-
-          <View style={styles.goalInfo}>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Investido</Text>
-              <Text style={styles.infoValue}>
-                R$ {totalInvested.toLocaleString("pt-BR")}
-              </Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Restante</Text>
-              <Text style={styles.infoValue}>
-                R$ {remainingValue.toLocaleString("pt-BR")}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.investmentsSection}>
-          <Text style={styles.sectionTitle}>
-            Aportes Mensais
-            <Text style={styles.remainingMonths}>
-              {" "}
-              ({remainingMonths} restantes)
-            </Text>
-          </Text>
-
-          {monthlyData.map((item) => (
-            <InvestmentCard
-              key={item.month}
-              month={item.formattedMonth}
-              value={item.value}
-              completed={item.completed}
-              onComplete={() => handleCompleteMonth(item.month)}
-            />
-          ))}
-        </View>
-      </ScrollView>
+      />
     </Layout>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#F8F9FA",
-  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -152,9 +176,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF",
     borderBottomWidth: 1,
     borderBottomColor: "#E9ECEF",
-  },
-  container: {
-    flex: 1,
   },
   greeting: {
     fontSize: 24,
@@ -210,27 +231,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
-  },
-  chartSection: {
-    padding: 16,
-    backgroundColor: "#FFF",
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 16,
-  },
-  investmentsSection: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  remainingMonths: {
-    fontSize: 14,
-    color: "#666",
-    fontWeight: "normal",
   },
 });

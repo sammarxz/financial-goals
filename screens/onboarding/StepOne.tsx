@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, memo, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,25 +9,122 @@ import {
   Keyboard,
   Dimensions,
 } from "react-native";
-import Animated from "react-native-reanimated";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
-import { Input } from "../../components/Input";
-import { Button } from "../../components/Button";
-import { OnboardingNavigationProp } from "../../@types/navigation";
-import { useStepOneForm } from "../../hooks/useStepOneForm";
+import { OnboardingScreenNavigationProp } from "../../@types/navigation";
+import {
+  MemoizedInput,
+  MemoizedButton,
+} from "../../components/MemoizedComponents";
+import { useOptimizedAnimations } from "../../hooks/useOptimizedAnimations";
 
 const { height } = Dimensions.get("window");
 
+// Memoized Progress Steps Component
+const ProgressSteps = memo(() => (
+  <View style={styles.stepIndicator}>
+    <View style={styles.stepDot}>
+      <Feather name="user" size={20} color="#FFF" />
+    </View>
+    <View style={styles.stepLine} />
+    <View style={[styles.stepDot, styles.stepInactive]} />
+    <View style={styles.stepLine} />
+    <View style={[styles.stepDot, styles.stepInactive]} />
+  </View>
+));
+
+// Memoized Welcome Title Component
+const WelcomeTitle = memo(() => (
+  <View>
+    <Text style={styles.title}>Bem-vindo!</Text>
+    <Text style={styles.subtitle}>Vamos começar conhecendo você melhor.</Text>
+  </View>
+));
+
 interface StepOneProps {
-  navigation: OnboardingNavigationProp;
+  navigation: OnboardingScreenNavigationProp;
 }
 
 export function StepOne({ navigation }: StepOneProps) {
-  const { name, error, animations, handleNameChange, handleNext, isValid } =
-    useStepOneForm({ navigation });
+  // State
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  // Animations
+  const { startEntryAnimation, opacity, translateY, scale } =
+    useOptimizedAnimations();
+
+  // Keyboard listeners
+  useEffect(() => {
+    const keyboardDidShow = Keyboard.addListener("keyboardDidShow", () => {
+      setIsKeyboardVisible(true);
+    });
+
+    const keyboardDidHide = Keyboard.addListener("keyboardDidHide", () => {
+      setIsKeyboardVisible(false);
+    });
+
+    return () => {
+      keyboardDidShow.remove();
+      keyboardDidHide.remove();
+    };
+  }, []);
+
+  // Start animations when component mounts
+  useEffect(() => {
+    startEntryAnimation();
+  }, [startEntryAnimation]);
+
+  // Animated styles
+  const titleAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }, { scale: scale.value }],
+  }));
+
+  const inputAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  const buttonAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  // Handlers
+  const handleNameChange = useCallback(
+    (text: string) => {
+      setName(text);
+      if (error) setError("");
+    },
+    [error]
+  );
+
+  const validateName = useCallback((name: string) => {
+    if (!name.trim()) {
+      return "Por favor, digite seu nome";
+    }
+    if (name.trim().length < 2) {
+      return "O nome deve ter pelo menos 2 caracteres";
+    }
+    return "";
+  }, []);
+
+  const handleNext = useCallback(() => {
+    const validationError = validateName(name);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    navigation.navigate("StepTwo", { name: name.trim() });
+  }, [name, navigation, validateName]);
+
+  const handleDismissKeyboard = useCallback(() => {
+    Keyboard.dismiss();
+  }, []);
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+    <TouchableWithoutFeedback onPress={handleDismissKeyboard}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.container}
@@ -35,28 +132,23 @@ export function StepOne({ navigation }: StepOneProps) {
         <View style={styles.content}>
           {/* Header com indicador de progresso */}
           <View style={styles.header}>
-            <View style={styles.stepIndicator}>
-              <View style={styles.stepDot}>
-                <Feather name="user" size={20} color="#FFF" />
-              </View>
-              <View style={styles.stepLine} />
-              <View style={[styles.stepDot, styles.stepInactive]} />
-              <View style={styles.stepLine} />
-              <View style={[styles.stepDot, styles.stepInactive]} />
-            </View>
+            <ProgressSteps />
           </View>
 
           {/* Título animado */}
-          <Animated.View style={[styles.titleContainer, animations.titleStyle]}>
-            <Text style={styles.title}>Bem-vindo!</Text>
-            <Text style={styles.subtitle}>
-              Vamos começar conhecendo você melhor.
-            </Text>
+          <Animated.View
+            style={[
+              styles.titleContainer,
+              titleAnimatedStyle,
+              isKeyboardVisible && styles.titleContainerKeyboard,
+            ]}
+          >
+            <WelcomeTitle />
           </Animated.View>
 
           {/* Input animado */}
-          <Animated.View style={[styles.inputContainer, animations.inputStyle]}>
-            <Input
+          <Animated.View style={[styles.inputContainer, inputAnimatedStyle]}>
+            <MemoizedInput
               label="Como podemos te chamar?"
               placeholder="Digite seu nome"
               value={name}
@@ -70,13 +162,11 @@ export function StepOne({ navigation }: StepOneProps) {
           </Animated.View>
 
           {/* Botão animado */}
-          <Animated.View
-            style={[styles.buttonContainer, animations.buttonStyle]}
-          >
-            <Button
+          <Animated.View style={[styles.buttonContainer, buttonAnimatedStyle]}>
+            <MemoizedButton
               title="Continuar"
               onPress={handleNext}
-              disabled={!isValid}
+              disabled={!name.trim()}
             />
           </Animated.View>
         </View>
@@ -123,6 +213,9 @@ const styles = StyleSheet.create({
   titleContainer: {
     marginTop: height * 0.1,
     marginBottom: 32,
+  },
+  titleContainerKeyboard: {
+    marginTop: height * 0.05,
   },
   title: {
     fontSize: 32,
