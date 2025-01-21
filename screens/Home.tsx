@@ -8,12 +8,12 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
-import { RootStackParamList } from "../@types/navigation";
+import { RootStackNavigation } from "../@types/navigation";
+import { MonthlyValue } from "../@types/schemas";
 
 import { useInvestmentData } from "../hooks/useInvestmentData";
 
@@ -21,17 +21,8 @@ import { ProgressBar } from "../components/ProgressBar";
 import { InvestmentCard } from "../components/InvestmentCard";
 import { Layout } from "../components/Layout";
 
-type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-interface MonthlyDataItem {
-  month: string;
-  formattedMonth: string;
-  value: number;
-  completed: boolean;
-}
-
 export function Home() {
-  const navigation = useNavigation<HomeScreenNavigationProp>();
+  const navigation = useNavigation<RootStackNavigation>();
   const [refreshing, setRefreshing] = useState(false);
   const {
     userData,
@@ -51,7 +42,7 @@ export function Home() {
   if (!userData) return null;
 
   // Calcular monthlyData localmente
-  const monthlyData: MonthlyDataItem[] = Object.entries(userData.monthlyValues)
+  const monthlyData: MonthlyValue[] = Object.entries(userData.monthlyValues)
     .sort(
       ([dateA], [dateB]) =>
         new Date(dateA).getTime() - new Date(dateB).getTime()

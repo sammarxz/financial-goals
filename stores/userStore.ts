@@ -1,49 +1,82 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
-interface UserData {
-  name: string;
-  goal: number;
-  startDate: Date;
-  endDate: Date;
-  investmentType: "fixed" | "growing";
-  monthlyValues: { [key: string]: number };
-  completedMonths: string[];
-}
+import { UserData, UserDataSchema } from "../@types/schemas";
 
 interface UserStore {
   userData: UserData | null;
-  setUserData: (data: UserData) => void;
-  updateCompletedMonths: (month: string) => void;
-  clearUserData: () => void;
+  setUserData: (data: UserData) => Promise<void>;
+  updateCompletedMonths: (month: string) => Promise<void>;
+  clearUserData: () => Promise<void>;
+  validateUserData: (data: unknown) => data is UserData;
 }
 
 export const useUserStore = create<UserStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       userData: null,
-      setUserData: (data) => set({ userData: data }),
-      updateCompletedMonths: (month) =>
-        set((state) => ({
-          userData: state.userData
-            ? {
-                ...state.userData,
-                completedMonths: [...state.userData.completedMonths, month],
-              }
-            : null,
-        })),
-      clearUserData: () => set({ userData: null }),
+
+      validateUserData: (data: unknown): data is UserData => {
+        try {
+          UserDataSchema.parse(data);
+          return true;
+        } catch (error) {
+          console.error("UserData validation error:", error);
+          return false;
+        }
+      },
+
+      setUserData: async (data: UserData) => {
+        try {
+          // Valida os dados antes de salvar
+          UserDataSchema.parse(data);
+          set({ userData: data });
+        } catch (error) {
+          console.error("Error setting user data:", error);
+          throw new Error("Invalid user data");
+        }
+      },
+
+      updateCompletedMonths: async (month: string) => {
+        const { userData } = get();
+        if (!userData) throw new Error("No user data available");
+
+        try {
+          const newUserData = {
+            ...userData,
+            completedMonths: [...userData.completedMonths, month],
+          };
+
+          // Valida os dados antes de atualizar
+          UserDataSchema.parse(newUserData);
+          set({ userData: newUserData });
+        } catch (error) {
+          console.error("Error updating completed months:", error);
+          throw new Error("Invalid user data after update");
+        }
+      },
+
+      clearUserData: async () => {
+        set({ userData: null });
+      },
     }),
     {
       name: "investment-tracker-user",
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({ userData: state.userData }),
       onRehydrateStorage: () => (state) => {
-        // Convert string dates back to Date objects
+        // Valida e converte os dados durante a hidratação
         if (state?.userData) {
-          state.userData.startDate = new Date(state.userData.startDate);
-          state.userData.endDate = new Date(state.userData.endDate);
+          const userData = {
+            ...state.userData,
+            startDate: new Date(state.userData.startDate),
+            endDate: new Date(state.userData.endDate),
+          };
+
+          if (!state.validateUserData(userData)) {
+            console.error("Invalid data during rehydration");
+            state.userData = null;
+          }
         }
       },
     }

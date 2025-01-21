@@ -1,21 +1,53 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { NotificationConfig, NotificationSchema } from "../@types/schemas";
 
-interface NotificationStore {
-  enabled: boolean;
-  lastNotificationDate: Date | null;
-  toggleNotifications: () => void;
-  setLastNotificationDate: (date: Date) => void;
+interface NotificationStore extends NotificationConfig {
+  toggleNotifications: () => Promise<void>;
+  setLastNotificationDate: (date: Date) => Promise<void>;
+  validateNotificationConfig: (data: unknown) => data is NotificationConfig;
 }
 
 export const useNotificationStore = create<NotificationStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       enabled: true,
       lastNotificationDate: null,
-      toggleNotifications: () => set((state) => ({ enabled: !state.enabled })),
-      setLastNotificationDate: (date) => set({ lastNotificationDate: date }),
+
+      validateNotificationConfig: (
+        data: unknown
+      ): data is NotificationConfig => {
+        try {
+          NotificationSchema.parse(data);
+          return true;
+        } catch (error) {
+          console.error("NotificationConfig validation error:", error);
+          return false;
+        }
+      },
+
+      toggleNotifications: async () => {
+        try {
+          const newState = { ...get(), enabled: !get().enabled };
+          NotificationSchema.parse(newState);
+          set(newState);
+        } catch (error) {
+          console.error("Error toggling notifications:", error);
+          throw new Error("Invalid notification state");
+        }
+      },
+
+      setLastNotificationDate: async (date: Date) => {
+        try {
+          const newState = { ...get(), lastNotificationDate: date };
+          NotificationSchema.parse(newState);
+          set(newState);
+        } catch (error) {
+          console.error("Error setting notification date:", error);
+          throw new Error("Invalid notification date");
+        }
+      },
     }),
     {
       name: "investment-tracker-notifications",
@@ -25,9 +57,16 @@ export const useNotificationStore = create<NotificationStore>()(
         lastNotificationDate: state.lastNotificationDate,
       }),
       onRehydrateStorage: () => (state) => {
-        // Convert string date back to Date object
         if (state?.lastNotificationDate) {
-          state.lastNotificationDate = new Date(state.lastNotificationDate);
+          const config = {
+            ...state,
+            lastNotificationDate: new Date(state.lastNotificationDate),
+          };
+
+          if (!state.validateNotificationConfig(config)) {
+            state.lastNotificationDate = null;
+            state.enabled = true;
+          }
         }
       },
     }

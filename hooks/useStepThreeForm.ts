@@ -8,11 +8,14 @@ import {
 } from "react-native-reanimated";
 import { differenceInMonths, addMonths, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+
 import { useUserStore } from "../stores/userStore";
-import { OnboardingNavigationProp } from "../@types/navigation";
+
+import { OnboardingScreenNavigationProp } from "../@types/navigation";
+import { UserData } from "../@types/schemas";
 
 interface UseStepThreeFormProps {
-  navigation: OnboardingNavigationProp;
+  navigation: OnboardingScreenNavigationProp;
   initialData: {
     name: string;
     goal: number;
@@ -21,19 +24,36 @@ interface UseStepThreeFormProps {
   };
 }
 
-type InvestmentType = "fixed" | "growing";
+type InvestmentType = UserData["investmentType"];
+
+interface StepThreeFormReturn {
+  investmentType: InvestmentType;
+  loading: boolean;
+  animations: {
+    contentStyle: any;
+  };
+  totalMonths: number;
+  monthlyEstimate: string | null;
+  previewValues: Array<{
+    month: string;
+    value: number;
+    accumulated: number;
+  }>;
+  setInvestmentType: (type: InvestmentType) => void;
+  handleComplete: () => Promise<void>;
+  isDisabled: boolean;
+}
 
 export function useStepThreeForm({
   navigation,
   initialData,
-}: UseStepThreeFormProps) {
+}: UseStepThreeFormProps): StepThreeFormReturn {
   const setUserData = useUserStore((state) => state.setUserData);
   const { name, goal, startDate, endDate } = initialData;
 
   const [investmentType, setInvestmentType] = useState<InvestmentType>("fixed");
   const [loading, setLoading] = useState(false);
 
-  // Animações
   const contentOpacity = useSharedValue(0);
   const contentTranslateY = useSharedValue(50);
 
@@ -53,42 +73,39 @@ export function useStepThreeForm({
     return differenceInMonths(endDate, startDate) + 1;
   }, [startDate, endDate]);
 
-  // Função para arredondar para o múltiplo de 50 mais próximo
-  const roundToNearestFifty = (value: number) => {
+  const roundToNearestFifty = (value: number): number => {
     return Math.round(value / 50) * 50;
   };
 
   const calculateProgressiveValues = useCallback(() => {
-    const monthlyValues: { [key: string]: number } = {};
-    const months = totalMonths;
+    const monthlyValues: Record<string, number> = {};
 
     if (investmentType === "fixed") {
-      const exactMonthlyValue = goal / months;
+      const exactMonthlyValue = goal / totalMonths;
       const roundedMonthlyValue = roundToNearestFifty(exactMonthlyValue);
       let totalInvested = 0;
 
-      for (let i = 0; i < months - 1; i++) {
+      for (let i = 0; i < totalMonths - 1; i++) {
         const currentDate = addMonths(startDate, i);
         const monthKey = format(currentDate, "yyyy-MM");
         monthlyValues[monthKey] = roundedMonthlyValue;
         totalInvested += roundedMonthlyValue;
       }
 
-      const lastDate = addMonths(startDate, months - 1);
+      const lastDate = addMonths(startDate, totalMonths - 1);
       const lastMonthKey = format(lastDate, "yyyy-MM");
       monthlyValues[lastMonthKey] = goal - totalInvested;
     } else {
-      const avgMonthlyValue = goal / months;
+      const avgMonthlyValue = goal / totalMonths;
       const lastMonthTarget = avgMonthlyValue * 1.5;
       const firstMonthValue = roundToNearestFifty(lastMonthTarget / 3);
-
       let totalInvested = 0;
       let currentValue = firstMonthValue;
-      let increment = roundToNearestFifty(
-        (lastMonthTarget - firstMonthValue) / (months - 1)
+      const increment = roundToNearestFifty(
+        (lastMonthTarget - firstMonthValue) / (totalMonths - 1)
       );
 
-      for (let i = 0; i < months - 1; i++) {
+      for (let i = 0; i < totalMonths - 1; i++) {
         const currentDate = addMonths(startDate, i);
         const monthKey = format(currentDate, "yyyy-MM");
         monthlyValues[monthKey] = currentValue;
@@ -96,7 +113,7 @@ export function useStepThreeForm({
         currentValue += increment;
       }
 
-      const lastDate = addMonths(startDate, months - 1);
+      const lastDate = addMonths(startDate, totalMonths - 1);
       const lastMonthKey = format(lastDate, "yyyy-MM");
       monthlyValues[lastMonthKey] = goal - totalInvested;
     }
@@ -123,8 +140,7 @@ export function useStepThreeForm({
       setLoading(true);
       const monthlyValues = calculateProgressiveValues();
 
-      // Criando os dados do usuário
-      await setUserData({
+      const userData: UserData = {
         name,
         goal,
         startDate,
@@ -132,8 +148,9 @@ export function useStepThreeForm({
         investmentType,
         monthlyValues,
         completedMonths: [],
-      });
+      };
 
+      await setUserData(userData);
       navigation.navigate("Home");
     } catch (error) {
       Alert.alert("Erro", "Houve um erro ao salvar os dados. Tente novamente.");

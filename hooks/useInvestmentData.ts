@@ -1,7 +1,18 @@
-import { useNotificationStore } from "../stores/notificationStore";
 import { useUserStore } from "../stores/userStore";
+import { useNotificationStore } from "../stores/notificationStore";
 
-export const useInvestmentData = () => {
+import { UserData } from "../@types/schemas";
+
+interface InvestmentData {
+  userData: UserData | null;
+  notificationsEnabled: boolean;
+  totalInvested: number;
+  progress: number;
+  remainingValue: number;
+  updateCompletedMonths: (month: string) => Promise<void>;
+}
+
+export const useInvestmentData = (): InvestmentData => {
   const { userData, updateCompletedMonths } = useUserStore();
   const notificationsEnabled = useNotificationStore((state) => state.enabled);
 

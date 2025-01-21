@@ -13,26 +13,41 @@ import { useNavigation } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { format, differenceInMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { z } from "zod";
 
 import { useNotificationStore } from "../stores/notificationStore";
 import { useUserStore } from "../stores/userStore";
+import { useAppConfigStore } from "../stores/configStore";
 
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { DateRangePicker } from "../components/DateRangePicker";
 import { Layout } from "../components/Layout";
 
-import { RootStackParamList } from "../@types/navigation";
+import { RootStackNavigation } from "../@types/navigation";
+import { AppConfig, UserData } from "../@types/schemas";
 
 import { calculateMonthlyValues } from "../utils/calculateMonthlyValues";
 
-type SettingsScreenNavigationProp =
-  NativeStackNavigationProp<RootStackParamList>;
+const themeOptions: Record<AppConfig["theme"], string> = {
+  light: "Claro",
+  dark: "Escuro",
+  system: "Sistema",
+};
+
+type CurrencyOption = {
+  label: string;
+  symbol: string;
+};
+
+const currencyOptions: Record<AppConfig["currency"], CurrencyOption> = {
+  BRL: { label: "Real (R$)", symbol: "R$" },
+  USD: { label: "Dólar (US$)", symbol: "US$" },
+  EUR: { label: "Euro (€)", symbol: "€" },
+};
 
 export function Settings() {
-  const navigation = useNavigation<SettingsScreenNavigationProp>();
+  const navigation = useNavigation<RootStackNavigation>();
   const userData = useUserStore((state) => state.userData);
   const setUserData = useUserStore((state) => state.setUserData);
   const clearUserData = useUserStore((state) => state.clearUserData);
@@ -40,6 +55,7 @@ export function Settings() {
   const toggleNotifications = useNotificationStore(
     (state) => state.toggleNotifications
   );
+  const { theme, currency, setTheme, setCurrency } = useAppConfigStore();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(userData?.name || "");
@@ -55,15 +71,15 @@ export function Settings() {
   const [editedEndDate, setEditedEndDate] = useState(
     userData?.endDate || new Date()
   );
-  const [editedInvestmentType, setEditedInvestmentType] = useState(
-    userData?.investmentType || "fixed"
-  );
+  const [editedInvestmentType, setEditedInvestmentType] = useState<
+    UserData["investmentType"]
+  >(userData?.investmentType || "fixed");
 
   if (!userData) return null;
 
   const handleToggleNotifications = async () => {
     try {
-      toggleNotifications();
+      await toggleNotifications();
     } catch (error) {
       Alert.alert(
         "Erro",
@@ -90,48 +106,38 @@ export function Settings() {
 
   const handleSaveChanges = async () => {
     try {
-      // Validações
-      if (!editedName.trim()) {
-        Alert.alert("Erro", "O nome é obrigatório");
-        return;
-      }
-
+      // Construir os dados para validação
       const goalValue = Number(editedGoal.replace(/\D/g, "")) / 100;
-      if (goalValue < 100) {
-        Alert.alert("Erro", "A meta deve ser de pelo menos R$ 100,00");
-        return;
-      }
-
-      const monthDiff = differenceInMonths(editedEndDate, editedStartDate);
-      if (monthDiff < 1) {
-        Alert.alert("Erro", "O período deve ser de pelo menos 1 mês");
-        return;
-      }
-
-      // Calcular novos valores mensais
-      const monthlyValues = calculateMonthlyValues(
-        goalValue,
-        editedStartDate,
-        editedEndDate,
-        editedInvestmentType
-      );
-
-      // Atualizar dados
-      await setUserData({
+      const newUserData: UserData = {
         ...userData,
         name: editedName,
         goal: goalValue,
         startDate: editedStartDate,
         endDate: editedEndDate,
         investmentType: editedInvestmentType,
-        monthlyValues,
-        completedMonths: [], // Reseta os meses completados
-      });
+        monthlyValues: calculateMonthlyValues(
+          goalValue,
+          editedStartDate,
+          editedEndDate,
+          editedInvestmentType
+        ),
+        completedMonths: [],
+      };
 
+      // Validar com Zod antes de salvar
+      await setUserData(newUserData);
       setIsEditing(false);
       Alert.alert("Sucesso", "Dados atualizados com sucesso!");
     } catch (error) {
-      Alert.alert("Erro", "Não foi possível salvar as alterações");
+      if (error instanceof z.ZodError) {
+        if (error instanceof z.ZodError) {
+          Alert.alert("Erro de Validação", error.errors[0].message);
+        } else {
+          Alert.alert("Erro", "Não foi possível salvar as alterações");
+        }
+      } else {
+        Alert.alert("Erro", "Não foi possível salvar as alterações");
+      }
     }
   };
 
@@ -140,25 +146,16 @@ export function Settings() {
       "Limpar Dados",
       "Tem certeza que deseja apagar todos os dados? Esta ação não pode ser desfeita.",
       [
-        {
-          text: "Cancelar",
-          style: "cancel",
-        },
+        { text: "Cancelar", style: "cancel" },
         {
           text: "Confirmar",
           style: "destructive",
           onPress: async () => {
             try {
               await clearUserData();
-              await AsyncStorage.clear();
               navigation.reset({
                 index: 0,
-                routes: [
-                  {
-                    name: "Onboarding",
-                    params: { screen: "StepOne" },
-                  },
-                ],
+                routes: [{ name: "Onboarding", params: { screen: "StepOne" } }],
               });
             } catch (error) {
               Alert.alert("Erro", "Não foi possível limpar os dados");
@@ -316,6 +313,44 @@ export function Settings() {
             </TouchableOpacity>
           </View>
 
+          <View style={styles.preferenceItem}>
+            <Text style={styles.preferenceLabel}>Tema</Text>
+            <View style={styles.buttonGroup}>
+              {(
+                Object.entries(themeOptions) as [AppConfig["theme"], string][]
+              ).map(([key, label]) => (
+                <Button
+                  key={key}
+                  title={label}
+                  variant={theme === key ? "primary" : "outline"}
+                  onPress={() => setTheme(key)}
+                  style={styles.themeButton}
+                />
+              ))}
+            </View>
+          </View>
+
+          {/* Botões de moeda */}
+          <View style={styles.preferenceItem}>
+            <Text style={styles.preferenceLabel}>Moeda</Text>
+            <View style={styles.buttonGroup}>
+              {(
+                Object.entries(currencyOptions) as [
+                  AppConfig["currency"],
+                  CurrencyOption
+                ][]
+              ).map(([key, { label }]) => (
+                <Button
+                  key={key}
+                  title={label}
+                  variant={currency === key ? "primary" : "outline"}
+                  onPress={() => setCurrency(key)}
+                  style={styles.currencyButton}
+                />
+              ))}
+            </View>
+          </View>
+
           {isEditing ? (
             <View style={styles.section}>
               <Button title="Salvar Alterações" onPress={handleSaveChanges} />
@@ -443,6 +478,22 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   typeButton: {
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  preferenceItem: {
+    marginBottom: 16,
+  },
+  preferenceLabel: {
+    fontSize: 16,
+    color: "#333",
+    marginBottom: 8,
+  },
+  themeButton: {
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  currencyButton: {
     flex: 1,
     marginHorizontal: 4,
   },
