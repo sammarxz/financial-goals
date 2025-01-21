@@ -48,6 +48,7 @@ const styles = StyleSheet.create({
   },
   percentage: {
     position: "absolute",
+    top: -2,
     right: 8,
     color: "#333",
     fontSize: 12,

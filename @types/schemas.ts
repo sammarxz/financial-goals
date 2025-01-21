@@ -14,10 +14,12 @@ export const UserDataSchema = z
     monthlyValues: MonthlyValuesSchema,
     completedMonths: z.array(z.string()),
   })
-  .refine(
-    (data) => data.endDate > data.startDate,
-    "Data final deve ser posterior à data inicial"
-  );
+  .refine((data) => {
+    // Garante que as datas são válidas antes de comparar
+    const start = new Date(data.startDate);
+    const end = new Date(data.endDate);
+    return !isNaN(start.getTime()) && !isNaN(end.getTime()) && end > start;
+  }, "Data final deve ser posterior à data inicial");
 
 // Schema para notificações
 export const NotificationSchema = z.object({
@@ -27,9 +29,9 @@ export const NotificationSchema = z.object({
 
 // Schema para configurações do app
 export const AppConfigSchema = z.object({
-  theme: z.enum(["light", "dark", "system"]).default("system"),
-  currency: z.enum(["BRL", "USD", "EUR"]).default("BRL"),
-  locale: z.enum(["pt-BR", "en-US", "es-ES"]).default("pt-BR"),
+  theme: z.enum(["light", "dark", "system"]),
+  currency: z.enum(["BRL", "USD", "EUR"]),
+  locale: z.enum(["pt-BR", "en-US", "es-ES"]),
 });
 
 // Inferindo tipos dos schemas

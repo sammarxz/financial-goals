@@ -390,8 +390,6 @@ export function Settings() {
     []
   );
 
-  if (!userData) return null;
-
   return (
     <Layout>
       <KeyboardAvoidingView

@@ -1,14 +1,13 @@
 import React, { useCallback, memo } from "react";
 import { View, VirtualizedList, StyleSheet, Text } from "react-native";
-import { InvestmentCard } from "./InvestmentCard";
+import { EnhancedInvestmentCard } from "./EnhancedInvestmentCard";
 import type { MonthlyValue } from "../@types/schemas";
 
-// Componente InvestmentCard otimizado com memo
-const MemoizedInvestmentCard = memo(InvestmentCard);
+const MemoizedEnhancedInvestmentCard = memo(EnhancedInvestmentCard);
 
 interface InvestmentListProps {
   data: MonthlyValue[];
-  onComplete: (month: string) => void;
+  onToggle: (month: string) => void;
   refreshControl?: React.ReactElement;
 }
 
@@ -19,19 +18,20 @@ const keyExtractor = (item: MonthlyValue) => item.month;
 
 export function OptimizedInvestmentList({
   data,
-  onComplete,
+  onToggle,
+  refreshControl,
 }: InvestmentListProps) {
   // Memoize renderItem function
   const renderItem = useCallback(
     ({ item }: { item: MonthlyValue }) => (
-      <MemoizedInvestmentCard
+      <MemoizedEnhancedInvestmentCard
         month={item.formattedMonth}
         value={item.value}
         completed={item.completed}
-        onComplete={() => onComplete(item.month)}
+        onToggle={() => onToggle(item.month)}
       />
     ),
-    [onComplete]
+    [onToggle]
   );
 
   // Memoize ListHeaderComponent
@@ -75,6 +75,7 @@ export function OptimizedInvestmentList({
       removeClippedSubviews={true}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.container}
+      refreshControl={refreshControl}
     />
   );
 }

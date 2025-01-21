@@ -86,13 +86,8 @@ const GoalCard = React.memo(
 export function Home() {
   const navigation = useNavigation<RootStackNavigation>();
   const [refreshing, setRefreshing] = useState(false);
-  const {
-    userData,
-    totalInvested,
-    progress,
-    remainingValue,
-    updateCompletedMonths,
-  } = useInvestmentData();
+  const { userData, totalInvested, progress, remainingValue, toggleMonth } =
+    useInvestmentData();
   const { startEntryAnimation } = useOptimizedAnimations();
 
   // Memoize callbacks
@@ -100,15 +95,15 @@ export function Home() {
     navigation.navigate("Settings");
   }, [navigation]);
 
-  const handleCompleteMonth = useCallback(
+  const handleToggleMonth = useCallback(
     async (month: string) => {
       try {
-        await updateCompletedMonths(month);
+        await toggleMonth(month);
       } catch (error) {
-        console.error("Error completing month:", error);
+        console.error("Error toggling month:", error);
       }
     },
-    [updateCompletedMonths]
+    [toggleMonth]
   );
 
   const onRefresh = useCallback(() => {
@@ -157,7 +152,7 @@ export function Home() {
 
       <OptimizedInvestmentList
         data={monthlyData}
-        onComplete={handleCompleteMonth}
+        onToggle={handleToggleMonth}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }

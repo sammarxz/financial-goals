@@ -6,10 +6,21 @@ import { UserData, UserDataSchema } from "../@types/schemas";
 interface UserStore {
   userData: UserData | null;
   setUserData: (data: UserData) => Promise<void>;
-  updateCompletedMonths: (month: string) => Promise<void>;
+  toggleCompletedMonth: (month: string) => Promise<void>;
   clearUserData: () => Promise<void>;
   validateUserData: (data: unknown) => data is UserData;
 }
+
+type PersistedUserData = Omit<UserData, "startDate" | "endDate"> & {
+  startDate: string;
+  endDate: string;
+};
+
+const parseStoredData = (data: PersistedUserData): UserData => ({
+  ...data,
+  startDate: new Date(data.startDate),
+  endDate: new Date(data.endDate),
+});
 
 export const useUserStore = create<UserStore>()(
   persist(
@@ -28,7 +39,6 @@ export const useUserStore = create<UserStore>()(
 
       setUserData: async (data: UserData) => {
         try {
-          // Valida os dados antes de salvar
           UserDataSchema.parse(data);
           set({ userData: data });
         } catch (error) {
@@ -37,22 +47,25 @@ export const useUserStore = create<UserStore>()(
         }
       },
 
-      updateCompletedMonths: async (month: string) => {
+      toggleCompletedMonth: async (month: string) => {
         const { userData } = get();
         if (!userData) throw new Error("No user data available");
 
         try {
+          const completedMonths = userData.completedMonths.includes(month)
+            ? userData.completedMonths.filter((m) => m !== month)
+            : [...userData.completedMonths, month];
+
           const newUserData = {
             ...userData,
-            completedMonths: [...userData.completedMonths, month],
+            completedMonths,
           };
 
-          // Valida os dados antes de atualizar
           UserDataSchema.parse(newUserData);
           set({ userData: newUserData });
         } catch (error) {
-          console.error("Error updating completed months:", error);
-          throw new Error("Invalid user data after update");
+          console.error("Error toggling completed month:", error);
+          throw error;
         }
       },
 
@@ -63,19 +76,31 @@ export const useUserStore = create<UserStore>()(
     {
       name: "investment-tracker-user",
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({ userData: state.userData }),
+      partialize: (state) => {
+        if (!state.userData) return { userData: null };
+
+        return {
+          userData: {
+            ...state.userData,
+            startDate: state.userData.startDate.toISOString(),
+            endDate: state.userData.endDate.toISOString(),
+          },
+        };
+      },
       onRehydrateStorage: () => (state) => {
-        // Valida e converte os dados durante a hidratação
         if (state?.userData) {
-          const userData = {
+          // Converte as datas de string para Date ao recarregar
+          const parsed = {
             ...state.userData,
             startDate: new Date(state.userData.startDate),
             endDate: new Date(state.userData.endDate),
           };
 
-          if (!state.validateUserData(userData)) {
-            console.error("Invalid data during rehydration");
+          if (!UserDataSchema.safeParse(parsed).success) {
+            console.error("Invalid stored user data");
             state.userData = null;
+          } else {
+            state.userData = parsed;
           }
         }
       },
