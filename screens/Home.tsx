@@ -1,10 +1,9 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   RefreshControl,
   TouchableOpacity,
 } from "react-native";
@@ -15,26 +14,32 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 import { RootStackParamList } from "../@types/navigation";
-import { useUser } from "../contexts/UserContext";
-import { useInvestment } from "../hooks/useInvestment";
+
+import { useInvestmentData } from "../hooks/useInvestmentData";
+
 import { ProgressBar } from "../components/ProgressBar";
 import { InvestmentCard } from "../components/InvestmentCard";
 import { Layout } from "../components/Layout";
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+interface MonthlyDataItem {
+  month: string;
+  formattedMonth: string;
+  value: number;
+  completed: boolean;
+}
+
 export function Home() {
   const navigation = useNavigation<HomeScreenNavigationProp>();
-  const { userData } = useUser();
+  const [refreshing, setRefreshing] = useState(false);
   const {
+    userData,
     totalInvested,
     progress,
     remainingValue,
-    monthlyData,
-    handleCompleteMonth,
-  } = useInvestment();
-
-  const [refreshing, setRefreshing] = React.useState(false);
+    updateCompletedMonths,
+  } = useInvestmentData();
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -45,7 +50,28 @@ export function Home() {
 
   if (!userData) return null;
 
+  // Calcular monthlyData localmente
+  const monthlyData: MonthlyDataItem[] = Object.entries(userData.monthlyValues)
+    .sort(
+      ([dateA], [dateB]) =>
+        new Date(dateA).getTime() - new Date(dateB).getTime()
+    )
+    .map(([month, value]) => ({
+      month,
+      formattedMonth: format(new Date(month), "MMMM/yyyy", { locale: ptBR }),
+      value,
+      completed: userData.completedMonths.includes(month),
+    }));
+
   const remainingMonths = monthlyData.filter((item) => !item.completed).length;
+
+  const handleCompleteMonth = async (month: string) => {
+    try {
+      await updateCompletedMonths(month);
+    } catch (error) {
+      console.error("Error completing month:", error);
+    }
+  };
 
   return (
     <Layout>
@@ -120,6 +146,7 @@ export function Home() {
     </Layout>
   );
 }
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,

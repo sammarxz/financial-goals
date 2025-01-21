@@ -8,7 +8,7 @@ import {
 } from "react-native-reanimated";
 import { differenceInMonths, addMonths, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { useUser } from "../contexts/UserContext";
+import { useUserStore } from "../stores/userStore";
 import { OnboardingNavigationProp } from "../@types/navigation";
 
 interface UseStepThreeFormProps {
@@ -27,7 +27,7 @@ export function useStepThreeForm({
   navigation,
   initialData,
 }: UseStepThreeFormProps) {
-  const { setUserData } = useUser();
+  const setUserData = useUserStore((state) => state.setUserData);
   const { name, goal, startDate, endDate } = initialData;
 
   const [investmentType, setInvestmentType] = useState<InvestmentType>("fixed");
@@ -63,11 +63,8 @@ export function useStepThreeForm({
     const months = totalMonths;
 
     if (investmentType === "fixed") {
-      // Para aportes fixos, arredondamos para o múltiplo de 50 mais próximo
-      // e ajustamos o último mês para completar a meta
       const exactMonthlyValue = goal / months;
       const roundedMonthlyValue = roundToNearestFifty(exactMonthlyValue);
-
       let totalInvested = 0;
 
       for (let i = 0; i < months - 1; i++) {
@@ -77,15 +74,10 @@ export function useStepThreeForm({
         totalInvested += roundedMonthlyValue;
       }
 
-      // Último mês ajusta a diferença
       const lastDate = addMonths(startDate, months - 1);
       const lastMonthKey = format(lastDate, "yyyy-MM");
       monthlyValues[lastMonthKey] = goal - totalInvested;
     } else {
-      // Para aportes crescentes, usamos uma progressão mais suave
-      // com valores redondos que aumentam gradualmente
-
-      // Calculamos o primeiro valor como aproximadamente 1/3 do último valor desejado
       const avgMonthlyValue = goal / months;
       const lastMonthTarget = avgMonthlyValue * 1.5;
       const firstMonthValue = roundToNearestFifty(lastMonthTarget / 3);
@@ -96,7 +88,6 @@ export function useStepThreeForm({
         (lastMonthTarget - firstMonthValue) / (months - 1)
       );
 
-      // Geramos valores crescentes em intervalos regulares
       for (let i = 0; i < months - 1; i++) {
         const currentDate = addMonths(startDate, i);
         const monthKey = format(currentDate, "yyyy-MM");
@@ -105,7 +96,6 @@ export function useStepThreeForm({
         currentValue += increment;
       }
 
-      // Último mês ajusta para atingir exatamente a meta
       const lastDate = addMonths(startDate, months - 1);
       const lastMonthKey = format(lastDate, "yyyy-MM");
       monthlyValues[lastMonthKey] = goal - totalInvested;
@@ -133,6 +123,7 @@ export function useStepThreeForm({
       setLoading(true);
       const monthlyValues = calculateProgressiveValues();
 
+      // Criando os dados do usuário
       await setUserData({
         name,
         goal,
@@ -141,7 +132,6 @@ export function useStepThreeForm({
         investmentType,
         monthlyValues,
         completedMonths: [],
-        notificationsEnabled: true,
       });
 
       navigation.navigate("Home");

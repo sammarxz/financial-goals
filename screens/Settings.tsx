@@ -12,24 +12,34 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { format, differenceInMonths } from "date-fns";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { calculateMonthlyValues } from "../utils/calculateMonthlyValues";
 import { ptBR } from "date-fns/locale";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
-import { useUser } from "../contexts/UserContext";
+import { useNotificationStore } from "../stores/notificationStore";
+import { useUserStore } from "../stores/userStore";
+
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { DateRangePicker } from "../components/DateRangePicker";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { RootStackParamList } from "../@types/navigation";
 import { Layout } from "../components/Layout";
+
+import { RootStackParamList } from "../@types/navigation";
+
+import { calculateMonthlyValues } from "../utils/calculateMonthlyValues";
 
 type SettingsScreenNavigationProp =
   NativeStackNavigationProp<RootStackParamList>;
 
 export function Settings() {
   const navigation = useNavigation<SettingsScreenNavigationProp>();
-  const { userData, setUserData, toggleNotifications } = useUser();
+  const userData = useUserStore((state) => state.userData);
+  const setUserData = useUserStore((state) => state.setUserData);
+  const clearUserData = useUserStore((state) => state.clearUserData);
+  const notificationsEnabled = useNotificationStore((state) => state.enabled);
+  const toggleNotifications = useNotificationStore(
+    (state) => state.toggleNotifications
+  );
 
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(userData?.name || "");
@@ -53,7 +63,7 @@ export function Settings() {
 
   const handleToggleNotifications = async () => {
     try {
-      await toggleNotifications();
+      toggleNotifications();
     } catch (error) {
       Alert.alert(
         "Erro",
@@ -139,6 +149,7 @@ export function Settings() {
           style: "destructive",
           onPress: async () => {
             try {
+              await clearUserData();
               await AsyncStorage.clear();
               navigation.reset({
                 index: 0,
@@ -291,14 +302,13 @@ export function Settings() {
                 <View
                   style={[
                     styles.toggle,
-                    userData.notificationsEnabled && styles.toggleActive,
+                    notificationsEnabled && styles.toggleActive,
                   ]}
                 >
                   <View
                     style={[
                       styles.toggleCircle,
-                      userData.notificationsEnabled &&
-                        styles.toggleCircleActive,
+                      notificationsEnabled && styles.toggleCircleActive,
                     ]}
                   />
                 </View>
